@@ -45,6 +45,14 @@ type CronJob = {
   lastRunAt: string | null;
 };
 
+type FeedResponse<T> = {
+  updatedAt: string;
+  source: string;
+  items?: T[];
+  events?: T[];
+  quotes?: T[];
+};
+
 type ApiState<T> = {
   data: T | null;
   loading: boolean;
@@ -154,17 +162,17 @@ function formatIstanbulTime(value: string) {
 
 function App() {
   const [activeTab, setActiveTab] = useState<(typeof tabs)[number]['id']>('geo');
-  const quotesState = useApi<{ updatedAt: string; source: string; quotes: Quote[] }>('/api/quotes', {
+  const quotesState = useApi<FeedResponse<Quote>>('/api/quotes', {
     updatedAt: new Date().toISOString(),
     source: 'Fallback Adapter',
     quotes: fallbackQuotes,
   });
-  const newsState = useApi<{ updatedAt: string; source: string; items: NewsItem[] }>('/api/finance/news', {
+  const newsState = useApi<FeedResponse<NewsItem>>('/api/finance/news', {
     updatedAt: new Date().toISOString(),
     source: 'News Engine',
     items: fallbackNews,
   });
-  const calendarState = useApi<{ updatedAt: string; source: string; events: CalendarEvent[] }>('/api/calendar/events', {
+  const calendarState = useApi<FeedResponse<CalendarEvent>>('/api/calendar/events', {
     updatedAt: new Date().toISOString(),
     source: 'Calendar Adapter',
     events: fallbackCalendar,
@@ -234,7 +242,7 @@ function App() {
             <div>
               <p className="section-label">Canlı Kotasyon Panosu</p>
               <div className="quote-grid">
-                {quotesState.data?.quotes.slice(0, 8).map((quote) => (
+                {quotesState.data?.quotes?.slice(0, 8).map((quote) => (
                   <article className="quote-card" key={quote.symbol}>
                     <div className="quote-head">
                       <strong>{quote.symbol}</strong>
@@ -268,7 +276,7 @@ function App() {
                   <p>Navlun baskısı, arz güvenliği ve bölgesel risk primi; altın, petrol ve dolar tarafında geniş çaplı fiyatlama yaratıyor.</p>
                   <span className="tag danger">Bölgesel Risk Seviyesi: YÜKSEK</span>
                 </article>
-                {newsState.data?.items.slice(0, 2).map((item) => (
+                {newsState.data?.items?.slice(0, 2).map((item) => (
                   <article className="article-card" key={item.title}>
                     <p className="section-label">Kriz Detayı & Etki</p>
                     <h4>{item.title}</h4>
@@ -328,7 +336,7 @@ function App() {
           {activeTab === 'calendar' && (
             <TabSection title="TAB 4: Günlük Veriler & Ekonomik Takvim" icon={<CalendarDays size={18} />}>
               <div className="calendar-list">
-                {calendarState.data?.events.map((event) => (
+                {calendarState.data?.events?.map((event) => (
                   <article className="calendar-row" key={`${event.timeTR}-${event.name}`}>
                     <span className="time-pill">{event.timeTR}</span>
                     <span className="country-pill">{event.country}</span>
@@ -366,7 +374,7 @@ function App() {
             <Newspaper size={18} />
             <h2>Canlı Haber Akışı</h2>
           </div>
-          {newsState.data?.map((item) => (
+          {newsState.data?.items?.map((item) => (
             <article className="news-item" key={item.title}>
               <div className="news-meta">
                 <span>{item.category}</span>

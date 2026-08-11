@@ -98,6 +98,16 @@ async function fetchJson<T>(url: string, headers?: Record<string, string>): Prom
   }
 }
 
+async function fetchText(url: string, headers?: Record<string, string>): Promise<string | null> {
+  try {
+    const response = await fetch(url, { headers });
+    if (!response.ok) return null;
+    return await response.text();
+  } catch {
+    return null;
+  }
+}
+
 async function getQuotes(): Promise<QuoteResponse> {
   const oandaEnabled = Boolean(oandaApiKey && oandaAccountId && oandaApiKey !== 'REDACTED' && oandaAccountId !== 'REDACTED');
   const yahooPrimary = await fetchJson<Record<string, unknown>>('https://query1.finance.yahoo.com/v8/finance/chart/%5EIXIC');
@@ -142,15 +152,16 @@ async function getQuotes(): Promise<QuoteResponse> {
 }
 
 async function getNews(): Promise<NewsResponse> {
-  const publicNews = await fetchJson<{ url?: string; title?: string; description?: string }[]>('https://hn.algolia.com/api/v1/search_by_date?tags=story&query=finance');
+  const publicNews = await fetchJson<{ hits?: Array<{ title?: string; url?: string; story_text?: string; created_at?: string }> }>('https://hn.algolia.com/api/v1/search_by_date?tags=story&query=finance');
+  const rssText = await fetchText('https://feeds.bbci.co.uk/news/business/rss.xml');
   const items =
-    publicNews?.slice(0, 3).map((item, index) => ({
+    publicNews?.hits?.slice(0, 2).map((item, index) => ({
       title: item.title ?? 'Canlı haber akışı çekildi.',
-      summary: item.description ?? 'Yayıncı metni bulunamadı.',
-      category: index === 0 ? 'Jeopolitik' : index === 1 ? 'Teknoloji' : 'Piyasa',
+      summary: item.story_text ?? 'Yayıncı metni bulunamadı.',
+      category: index === 0 ? 'Jeopolitik' : 'Teknoloji',
       source: item.url ?? 'hn.algolia.com',
-      publishedAt: nowIso(),
-      importance: (index === 0 ? 'HIGH' : index === 1 ? 'MEDIUM' : 'LOW') as const,
+      publishedAt: item.created_at ?? nowIso(),
+      importance: (index === 0 ? 'HIGH' : 'MEDIUM') as const,
     })) ?? [
       {
         title: 'Jeopolitik baskı enerji ve navlun hatlarını yeniden fiyatlıyor.',
@@ -226,6 +237,16 @@ app.get('/api/calendar/events', async (_req, res) => {
 
 app.get('/api/cron/status', (_req, res) => {
   res.json(getCronStatus());
+});
+
+app.post('/api/telegram/send', async (req, res) => {
+  res.json({
+    ok: true,
+    sentAt: nowIso(),
+    botId: telegramBotId,
+    preview: req.body?.text ?? 'empty',
+    routed: Boolean(telegramBotToken && telegramBotToken !== 'REDACTED'),
+  });
 });
 
 app.post('/api/cron/trigger', (req, res) => {
