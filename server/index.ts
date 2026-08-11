@@ -225,9 +225,14 @@ function getCronStatus() {
   return { ok: true, updatedAt: nowIso(), jobs };
 }
 
-function buildTelegramMessage(command: TelegramCommand) {
+function formatQuoteLine(quote: QuoteResponse['quotes'][number]) {
+  return `${quote.symbol}: ${quote.price.toLocaleString('en-US', { maximumFractionDigits: 4 })} (${quote.changePct >= 0 ? '+' : ''}${quote.changePct.toFixed(2)}%)`;
+}
+
+function buildTelegramMessage(command: TelegramCommand, data?: { quotes?: QuoteResponse; news?: NewsResponse }) {
   if (command === '/fiyatlar') {
-    return 'TraderAI • Canlı fiyatlar hazır. /api/quotes üzerinden 13 parite izleniyor.';
+    const lines = data?.quotes?.quotes.slice(0, 5).map(formatQuoteLine).join('\n') ?? 'Fiyat verisi bekleniyor.';
+    return `TraderAI • Canlı fiyatlar\n---\n${lines}`;
   }
 
   if (command === '/cot') {
@@ -238,7 +243,8 @@ function buildTelegramMessage(command: TelegramCommand) {
     return 'TraderAI • Kırmızı klasör alarm modu aktif. Yüksek etkili veri öncesi risk azaltıldı.';
   }
 
-  return 'TraderAI • Günlük master bülten hazır. Makro, jeopolitik ve faiz patikası izleniyor.';
+  const newsLine = data?.news?.items[0]?.title ?? 'Güncel haber akışı hazırlanıyor.';
+  return `TraderAI • Günlük master bülten\n---\n${newsLine}`;
 }
 
 app.get('/api/quotes', async (_req, res) => {
@@ -260,13 +266,15 @@ app.get('/api/cron/status', (_req, res) => {
 app.post('/api/telegram/send', async (req, res) => {
   const text = String(req.body?.text ?? '').trim();
   const command = text.startsWith('/') ? (text as TelegramCommand) : '/bulten';
+  const [quotes, news] = await Promise.all([getQuotes(), getNews()]);
+  const message = buildTelegramMessage(command, { quotes, news });
   res.json({
     ok: true,
     sentAt: nowIso(),
     botId: telegramBotId,
     preview: text || 'empty',
     routed: Boolean(telegramBotToken && telegramBotToken !== 'REDACTED'),
-    message: buildTelegramMessage(command),
+    message,
   });
 });
 
@@ -297,13 +305,14 @@ app.get('/api/oanda/status', (_req, res) => {
   });
 });
 
-app.post('/api/telegram/webhook', (req, res) => {
+app.post('/api/telegram/webhook', async (req, res) => {
   const text = String(req.body?.message?.text ?? '').trim();
   const command = text.startsWith('/') ? (text as TelegramCommand) : '/bulten';
+  const [quotes, news] = await Promise.all([getQuotes(), getNews()]);
   res.json({
     ok: true,
     receivedAt: nowIso(),
-    message: buildTelegramMessage(command),
+    message: buildTelegramMessage(command, { quotes, news }),
     updateType: req.body?.message?.text ?? req.body?.update_type ?? 'unknown',
   });
 });
