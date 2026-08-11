@@ -53,6 +53,8 @@ type CronJob = {
   lastRunAt: string | null;
 };
 
+type TelegramCommand = '/bulten' | '/fiyatlar' | '/cot' | '/alarm';
+
 const app = express();
 app.use(cors());
 app.use(express.json());
@@ -223,6 +225,22 @@ function getCronStatus() {
   return { ok: true, updatedAt: nowIso(), jobs };
 }
 
+function buildTelegramMessage(command: TelegramCommand) {
+  if (command === '/fiyatlar') {
+    return 'TraderAI • Canlı fiyatlar hazır. /api/quotes üzerinden 13 parite izleniyor.';
+  }
+
+  if (command === '/cot') {
+    return 'TraderAI • COT raporu hazırlanıyor. Spekülatif pozisyonlanma ve risk primi izleniyor.';
+  }
+
+  if (command === '/alarm') {
+    return 'TraderAI • Kırmızı klasör alarm modu aktif. Yüksek etkili veri öncesi risk azaltıldı.';
+  }
+
+  return 'TraderAI • Günlük master bülten hazır. Makro, jeopolitik ve faiz patikası izleniyor.';
+}
+
 app.get('/api/quotes', async (_req, res) => {
   res.json(await getQuotes());
 });
@@ -240,12 +258,15 @@ app.get('/api/cron/status', (_req, res) => {
 });
 
 app.post('/api/telegram/send', async (req, res) => {
+  const text = String(req.body?.text ?? '').trim();
+  const command = text.startsWith('/') ? (text as TelegramCommand) : '/bulten';
   res.json({
     ok: true,
     sentAt: nowIso(),
     botId: telegramBotId,
-    preview: req.body?.text ?? 'empty',
+    preview: text || 'empty',
     routed: Boolean(telegramBotToken && telegramBotToken !== 'REDACTED'),
+    message: buildTelegramMessage(command),
   });
 });
 
@@ -277,10 +298,12 @@ app.get('/api/oanda/status', (_req, res) => {
 });
 
 app.post('/api/telegram/webhook', (req, res) => {
+  const text = String(req.body?.message?.text ?? '').trim();
+  const command = text.startsWith('/') ? (text as TelegramCommand) : '/bulten';
   res.json({
     ok: true,
     receivedAt: nowIso(),
-    message: 'Telegram webhook accepted.',
+    message: buildTelegramMessage(command),
     updateType: req.body?.message?.text ?? req.body?.update_type ?? 'unknown',
   });
 });
