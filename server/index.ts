@@ -88,9 +88,9 @@ function buildSyntheticPrice(index: number, precision: number) {
   return Number((base + drift).toFixed(precision));
 }
 
-async function fetchJson<T>(url: string): Promise<T | null> {
+async function fetchJson<T>(url: string, headers?: Record<string, string>): Promise<T | null> {
   try {
-    const response = await fetch(url);
+    const response = await fetch(url, { headers });
     if (!response.ok) return null;
     return (await response.json()) as T;
   } catch {
@@ -141,47 +141,64 @@ async function getQuotes(): Promise<QuoteResponse> {
   };
 }
 
-function getNews(): NewsResponse {
-  const items = [
-    {
-      title: 'Jeopolitik baskı enerji ve navlun hatlarını yeniden fiyatlıyor.',
-      summary: 'Küresel risk iştahı, arz zinciri ve merkez bankası beklentileri üzerinden şekilleniyor.',
-      category: 'Jeopolitik',
-      source: 'CNBC / Yahoo / Google Finance',
+async function getNews(): Promise<NewsResponse> {
+  const publicNews = await fetchJson<{ url?: string; title?: string; description?: string }[]>('https://hn.algolia.com/api/v1/search_by_date?tags=story&query=finance');
+  const items =
+    publicNews?.slice(0, 3).map((item, index) => ({
+      title: item.title ?? 'Canlı haber akışı çekildi.',
+      summary: item.description ?? 'Yayıncı metni bulunamadı.',
+      category: index === 0 ? 'Jeopolitik' : index === 1 ? 'Teknoloji' : 'Piyasa',
+      source: item.url ?? 'hn.algolia.com',
       publishedAt: nowIso(),
-      importance: 'HIGH' as const,
-    },
-    {
-      title: 'AI yatırımlarında çip ve altyapı harcamaları öne çıkıyor.',
-      summary: 'Yarı iletken kapasite, bulut altyapısı ve veri merkezi talebi manşette kalmaya devam ediyor.',
-      category: 'Teknoloji',
-      source: 'CNBC / Yahoo / Google Finance',
-      publishedAt: nowIso(),
-      importance: 'MEDIUM' as const,
-    },
-    {
-      title: 'Prop firm haber penceresi kırmızı klasör riskini öne çekiyor.',
-      summary: 'Yüksek etkili veri öncesi ve sonrası işlem kısıtları için otomatik alarm mantığı devreye alınabilir.',
-      category: 'Risk Yönetimi',
-      source: 'TraderAI',
-      publishedAt: nowIso(),
-      importance: 'CRITICAL' as const,
-    },
-  ];
+      importance: (index === 0 ? 'HIGH' : index === 1 ? 'MEDIUM' : 'LOW') as const,
+    })) ?? [
+      {
+        title: 'Jeopolitik baskı enerji ve navlun hatlarını yeniden fiyatlıyor.',
+        summary: 'Küresel risk iştahı, arz zinciri ve merkez bankası beklentileri üzerinden şekilleniyor.',
+        category: 'Jeopolitik',
+        source: 'TraderAI Fallback',
+        publishedAt: nowIso(),
+        importance: 'HIGH' as const,
+      },
+      {
+        title: 'AI yatırımlarında çip ve altyapı harcamaları öne çıkıyor.',
+        summary: 'Yarı iletken kapasite, bulut altyapısı ve veri merkezi talebi manşette kalmaya devam ediyor.',
+        category: 'Teknoloji',
+        source: 'TraderAI Fallback',
+        publishedAt: nowIso(),
+        importance: 'MEDIUM' as const,
+      },
+      {
+        title: 'Prop firm haber penceresi kırmızı klasör riskini öne çekiyor.',
+        summary: 'Yüksek etkili veri öncesi ve sonrası işlem kısıtları için otomatik alarm mantığı devreye alınabilir.',
+        category: 'Risk Yönetimi',
+        source: 'TraderAI Fallback',
+        publishedAt: nowIso(),
+        importance: 'CRITICAL' as const,
+      },
+    ];
 
-  return { updatedAt: nowIso(), source: 'aggregated-live-feeds', items };
+  return { updatedAt: nowIso(), source: publicNews ? 'public-live-news' : 'fallback-news', items };
 }
 
-function getCalendar(): CalendarResponse {
-  return {
-    updatedAt: nowIso(),
-    source: 'live-calendar-adapter',
-    events: [
+async function getCalendar(): Promise<CalendarResponse> {
+  const calendarFeed = await fetchJson<{ events?: Array<{ time: string; country: string; title: string; forecast?: string; previous?: string; actual?: string; impact?: string }> }>('https://nfs.faireconomy.media/ff_calendar_thisweek.json');
+  const events =
+    calendarFeed?.events?.slice(0, 3).map((event) => ({
+      timeTR: event.time ?? '00:00',
+      country: event.country ?? '🌍',
+      name: event.title ?? 'Makro veri',
+      forecast: event.forecast ?? '-',
+      previous: event.previous ?? '-',
+      actual: event.actual ?? '-',
+      impact: event.impact ?? 'Yüksek volatilite yaratabilir.',
+    })) ?? [
       { timeTR: '14:00', country: '🇺🇸', name: 'ABD CPI', forecast: '0.3%', previous: '0.2%', actual: '-', impact: 'Dolar, altın ve endekslerde yüksek volatilite.' },
       { timeTR: '17:00', country: '🇪🇺', name: 'ECB Başkan Konuşması', forecast: '-', previous: '-', actual: '-', impact: 'EUR çaprazlarında yön belirleyici olabilir.' },
       { timeTR: '21:00', country: '🇺🇸', name: 'Fed Tutanakları', forecast: '-', previous: '-', actual: '-', impact: 'Faiz patikasına dair yeni sinyaller üretebilir.' },
-    ],
-  };
+    ];
+
+  return { updatedAt: nowIso(), source: calendarFeed ? 'public-live-calendar' : 'fallback-calendar', events };
 }
 
 function getCronStatus() {
@@ -199,12 +216,12 @@ app.get('/api/quotes', async (_req, res) => {
   res.json(await getQuotes());
 });
 
-app.get('/api/finance/news', (_req, res) => {
-  res.json(getNews());
+app.get('/api/finance/news', async (_req, res) => {
+  res.json(await getNews());
 });
 
-app.get('/api/calendar/events', (_req, res) => {
-  res.json(getCalendar());
+app.get('/api/calendar/events', async (_req, res) => {
+  res.json(await getCalendar());
 });
 
 app.get('/api/cron/status', (_req, res) => {
