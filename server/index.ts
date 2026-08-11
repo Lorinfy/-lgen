@@ -58,6 +58,10 @@ app.use(cors());
 app.use(express.json());
 
 const port = Number(process.env.PORT ?? 3001);
+const oandaApiKey = process.env.OANDA_API_KEY ?? 'REDACTED';
+const oandaAccountId = process.env.OANDA_ACCOUNT_ID ?? 'REDACTED';
+const telegramBotToken = process.env.TELEGRAM_BOT_TOKEN ?? 'REDACTED';
+const telegramBotId = process.env.TELEGRAM_BOT_ID ?? 'REDACTED';
 const quoteSymbols: QuoteSymbol[] = [
   { symbol: 'BTCUSD', precision: 2, name: 'Bitcoin / USD' },
   { symbol: 'ETHUSD', precision: 2, name: 'Ethereum / USD' },
@@ -95,7 +99,7 @@ async function fetchJson<T>(url: string): Promise<T | null> {
 }
 
 async function getQuotes(): Promise<QuoteResponse> {
-  const oandaEnabled = Boolean(process.env.OANDA_API_KEY && process.env.OANDA_ACCOUNT_ID);
+  const oandaEnabled = Boolean(oandaApiKey && oandaAccountId && oandaApiKey !== 'REDACTED' && oandaAccountId !== 'REDACTED');
   const yahooPrimary = await fetchJson<Record<string, unknown>>('https://query1.finance.yahoo.com/v8/finance/chart/%5EIXIC');
   const synthetic = quoteSymbols.map((entry, index) => ({
     symbol: entry.symbol,
@@ -105,6 +109,30 @@ async function getQuotes(): Promise<QuoteResponse> {
     updatedAt: nowIso(),
     source: oandaEnabled ? 'oanda' : yahooPrimary ? 'yahoo-fallback' : 'synthetic-fallback',
   }));
+
+  if (oandaEnabled) {
+    const oandaQuotes = await fetchJson<{ prices?: Array<{ instrument: string; bids?: Array<{ price: string }>; asks?: Array<{ price: string }> }> }>(`https://api-fxpractice.oanda.com/v3/accounts/${oandaAccountId}/pricing?instruments=${quoteSymbols.map((quote) => quote.symbol).join(',')}`);
+    if (oandaQuotes?.prices?.length) {
+      const map = new Map(oandaQuotes.prices.map((price) => [price.instrument, price]));
+      return {
+        updatedAt: nowIso(),
+        source: 'oanda-primary',
+        quotes: quoteSymbols.map((entry, index) => {
+          const price = map.get(entry.symbol);
+          const rawPrice = price?.bids?.[0]?.price ?? price?.asks?.[0]?.price;
+          const parsed = rawPrice ? Number(rawPrice) : buildSyntheticPrice(index, entry.precision);
+          return {
+            symbol: entry.symbol,
+            name: entry.name,
+            price: parsed,
+            changePct: Number((((index % 2 === 0 ? 1 : -1) * (0.3 + index * 0.07))).toFixed(2)),
+            updatedAt: nowIso(),
+            source: 'oanda-primary',
+          };
+        }),
+      };
+    }
+  }
 
   return {
     updatedAt: nowIso(),
@@ -189,6 +217,24 @@ app.post('/api/cron/trigger', (req, res) => {
     triggeredAt: nowIso(),
     request: req.body ?? {},
     message: 'Cron trigger accepted and queued.',
+  });
+});
+
+app.get('/api/telegram/config', (_req, res) => {
+  res.json({
+    ok: true,
+    botId: telegramBotId,
+    botTokenConfigured: telegramBotToken !== 'REDACTED',
+    note: 'Telegram token is accepted via environment and never exposed in full.',
+  });
+});
+
+app.get('/api/oanda/status', (_req, res) => {
+  res.json({
+    ok: true,
+    configured: oandaApiKey !== 'REDACTED' && oandaAccountId !== 'REDACTED',
+    accountIdMasked: oandaAccountId === 'REDACTED' ? 'REDACTED' : `${String(oandaAccountId).slice(0, 3)}***${String(oandaAccountId).slice(-3)}`,
+    pricingHost: 'https://api-fxpractice.oanda.com',
   });
 });
 
